@@ -1,0 +1,1229 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>招中标链接分析器</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --primary: #409EFF;
+            --success: #67C23A;
+            --warning: #E6A23C;
+            --danger: #F56C6C;
+            --info: #909399;
+            --bg: #f5f7fa;
+            --card-bg: #fff;
+            --border: #e4e7ed;
+            --text: #303133;
+            --text-secondary: #606266;
+            --text-muted: #909399;
+        }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif; background: var(--bg); color: var(--text); }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        .header { background: linear-gradient(135deg, #409EFF 0%, #337ecc 100%); color: #fff; padding: 24px 32px; border-radius: 12px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
+        .header h1 { font-size: 22px; font-weight: 600; }
+        .header .subtitle { font-size: 13px; opacity: 0.85; margin-top: 4px; }
+        .header .badge { background: rgba(255,255,255,0.2); padding: 4px 12px; border-radius: 20px; font-size: 12px; }
+
+        .card { background: var(--card-bg); border-radius: 10px; padding: 20px; margin-bottom: 16px; border: 1px solid var(--border); }
+        .card-title { font-size: 15px; font-weight: 600; margin-bottom: 16px; color: var(--text); display: flex; align-items: center; gap: 8px; }
+        .card-title .icon { width: 4px; height: 16px; background: var(--primary); border-radius: 2px; }
+
+        /* 上传区域 */
+        .upload-zone { border: 2px dashed var(--border); border-radius: 10px; padding: 40px; text-align: center; cursor: pointer; transition: all 0.3s; }
+        .upload-zone:hover { border-color: var(--primary); background: #f0f7ff; }
+        .upload-zone.dragging { border-color: var(--primary); background: #ecf5ff; }
+        .upload-zone .icon { font-size: 40px; color: var(--primary); margin-bottom: 12px; }
+        .upload-zone .tip { color: var(--text-muted); font-size: 13px; margin-top: 8px; }
+        .file-info { display: flex; align-items: center; gap: 16px; padding: 16px; background: #f0f9eb; border-radius: 8px; }
+        .file-info .name { font-weight: 500; color: var(--success); }
+        .file-info .count { color: var(--text-secondary); font-size: 13px; }
+
+        /* 数据源切换 */
+        .source-tabs { display: flex; gap: 0; margin-bottom: 16px; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }
+        .source-tab { flex: 1; padding: 12px; text-align: center; cursor: pointer; font-size: 14px; font-weight: 500; background: #fafafa; transition: all 0.2s; border: none; }
+        .source-tab.active { background: var(--primary); color: #fff; }
+        .source-tab:hover:not(.active) { background: #f0f0f0; }
+
+        /* 数据库配置 */
+        .db-config { padding: 16px; background: #f8f9fa; border-radius: 8px; border: 1px solid var(--border); }
+        .db-config-title { font-size: 14px; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+        .db-config-title .toggle { font-size: 12px; transition: transform 0.2s; }
+        .db-config-title .toggle.open { transform: rotate(90deg); }
+        .db-config-body { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .form-group { display: flex; flex-direction: column; gap: 4px; }
+        .form-group.full { grid-column: 1 / -1; }
+        .form-label { font-size: 12px; color: var(--text-secondary); font-weight: 500; }
+        .form-input { padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; outline: none; transition: border-color 0.2s; }
+        .form-input:focus { border-color: var(--primary); }
+        .form-input::placeholder { color: #c0c4cc; }
+        .form-select { padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; outline: none; transition: border-color 0.2s; background: #fff; cursor: pointer; }
+        .form-select:focus { border-color: var(--primary); }
+        .db-status { font-size: 12px; padding: 4px 10px; border-radius: 12px; display: inline-flex; align-items: center; gap: 4px; }
+        .db-status.on { background: #f0f9eb; color: var(--success); }
+        .db-status.off { background: #f4f4f5; color: var(--text-muted); }
+        .form-hint { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+        .db-preview { margin-top: 12px; max-height: 200px; overflow: auto; border: 1px solid var(--border); border-radius: 6px; }
+        .db-preview table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .db-preview th { background: #fafafa; padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
+        .db-preview td { padding: 6px 8px; border-bottom: 1px solid #f0f0f0; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+        /* LLM配置 */
+        .llm-config { margin-top: 16px; padding: 16px; background: #f8f9fa; border-radius: 8px; border: 1px solid var(--border); }
+        .llm-config-title { font-size: 14px; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+        .llm-config-title .toggle { font-size: 12px; transition: transform 0.2s; }
+        .llm-config-title .toggle.open { transform: rotate(90deg); }
+        .llm-config-body { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .llm-status { font-size: 12px; padding: 4px 10px; border-radius: 12px; display: inline-flex; align-items: center; gap: 4px; }
+        .llm-status.on { background: #f0f9eb; color: var(--success); }
+        .llm-status.off { background: #f4f4f5; color: var(--text-muted); }
+
+        /* 按钮 */
+        .btn { padding: 10px 24px; border-radius: 6px; font-size: 14px; cursor: pointer; border: none; transition: all 0.2s; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; }
+        .btn-primary { background: var(--primary); color: #fff; }
+        .btn-primary:hover { background: #66b1ff; }
+        .btn-primary:disabled { background: #a0cfff; cursor: not-allowed; }
+        .btn-success { background: var(--success); color: #fff; }
+        .btn-success:hover { background: #85ce61; }
+        .btn-warning { background: var(--warning); color: #fff; }
+        .btn-danger { background: var(--danger); color: #fff; }
+        .btn-sm { padding: 6px 14px; font-size: 12px; }
+        .btn-xs { padding: 4px 10px; font-size: 11px; border-radius: 4px; }
+        .btn-group { display: flex; gap: 10px; flex-wrap: wrap; }
+
+        /* 完成提示 */
+        .done-banner { background: linear-gradient(135deg, #67C23A 0%, #5daf34 100%); color: #fff; padding: 16px 20px; border-radius: 8px; display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+        .done-banner .done-icon { font-size: 28px; }
+        .done-banner .done-text { flex: 1; }
+        .done-banner .done-title { font-size: 15px; font-weight: 600; }
+        .done-banner .done-sub { font-size: 12px; opacity: 0.9; margin-top: 2px; }
+
+        /* 进度 */
+        .progress-bar { height: 22px; background: #e9ecef; border-radius: 11px; overflow: hidden; position: relative; }
+        .progress-fill { height: 100%; border-radius: 11px; transition: width 0.5s ease; }
+        .progress-fill.running { background: linear-gradient(90deg, var(--primary), #66b1ff); }
+        .progress-fill.completed { background: linear-gradient(90deg, var(--success), #85ce61); }
+        .progress-fill.updating { background: linear-gradient(90deg, var(--warning), #f0c78a); }
+        .progress-text { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 12px; font-weight: 600; color: #303133; }
+        .stats-row { display: flex; gap: 16px; margin-top: 12px; }
+        .stat-item { flex: 1; text-align: center; padding: 10px; border-radius: 8px; }
+        .stat-item .num { font-size: 24px; font-weight: 700; }
+        .stat-item .label { font-size: 12px; margin-top: 2px; }
+        .stat-valid { background: #f0f9eb; color: var(--success); }
+        .stat-login { background: #fdf6ec; color: var(--warning); }
+        .stat-invalid { background: #fef0f0; color: var(--danger); }
+        .stat-tokens { background: #f0f2f5; color: var(--text); }
+        .stat-tokens .num { font-size: 18px; }
+
+        /* 表格 */
+        .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+        .filter-tabs { display: flex; gap: 4px; }
+        .filter-tab { padding: 5px 14px; border-radius: 4px; font-size: 13px; cursor: pointer; border: 1px solid var(--border); background: #fff; transition: all 0.2s; }
+        .filter-tab.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+        .filter-tab .tab-count { font-size: 11px; opacity: 0.8; margin-left: 2px; }
+        .search-input { padding: 6px 12px; border: 1px solid var(--border); border-radius: 4px; font-size: 13px; width: 220px; outline: none; }
+        .search-input:focus { border-color: var(--primary); }
+        .table-wrap { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        thead th { background: #fafafa; padding: 10px 8px; text-align: left; border-bottom: 2px solid var(--border); font-weight: 600; white-space: nowrap; position: sticky; top: 0; z-index: 1; cursor: pointer; user-select: none; }
+        thead th:hover { background: #f0f0f0; }
+        thead th .sort-icon { font-size: 10px; margin-left: 2px; opacity: 0.5; }
+        thead th .sort-icon.active { opacity: 1; color: var(--primary); }
+        tbody td { padding: 10px 8px; border-bottom: 1px solid #f0f0f0; vertical-align: top; }
+        tbody tr:hover { background: #f5f7fa; }
+        .status-badge { padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 500; white-space: nowrap; display: inline-block; }
+        .status-有效 { background: #f0f9eb; color: var(--success); }
+        .status-需登录查看 { background: #fdf6ec; color: var(--warning); }
+        .status-链接无效 { background: #fef0f0; color: var(--danger); }
+        .link { color: var(--primary); text-decoration: none; font-size: 12px; }
+        .link:hover { text-decoration: underline; }
+        .summary-btn { color: var(--primary); cursor: pointer; font-size: 12px; }
+        .summary-btn:hover { text-decoration: underline; }
+        .error-text { color: var(--danger); font-size: 11px; margin-top: 2px; }
+        .amount { font-weight: 500; color: var(--warning); }
+        .ellipsis { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .pagination { display: flex; justify-content: center; align-items: center; gap: 8px; margin-top: 16px; }
+        .page-btn { padding: 4px 12px; border: 1px solid var(--border); border-radius: 4px; cursor: pointer; font-size: 13px; background: #fff; }
+        .page-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+        .page-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .page-info { font-size: 13px; color: var(--text-muted); }
+        .page-size-select { padding: 4px 8px; border: 1px solid var(--border); border-radius: 4px; font-size: 13px; outline: none; }
+
+        /* 摘要弹窗 */
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; display: flex; align-items: center; justify-content: center; }
+        .modal { background: #fff; border-radius: 12px; width: 720px; max-width: 90vw; max-height: 80vh; overflow-y: auto; padding: 24px; }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+        .modal-header h3 { font-size: 16px; }
+        .modal-close { width: 28px; height: 28px; border-radius: 50%; border: none; background: #f0f0f0; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; }
+        .modal-close:hover { background: #e0e0e0; }
+        .summary-content { background: #f8f9fa; border-radius: 8px; padding: 16px; font-size: 14px; line-height: 1.8; white-space: pre-wrap; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif; }
+        .summary-meta { margin-top: 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .meta-item { font-size: 13px; padding: 6px 10px; background: #f8f9fa; border-radius: 4px; }
+        .meta-item .label { color: var(--text-muted); }
+        .meta-item .value { color: var(--text); font-weight: 500; }
+
+        /* 图表 */
+        .charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .chart-box { height: 280px; }
+
+        /* DB回写结果提示 */
+        .db-update-banner { margin-top: 12px; padding: 12px 16px; border-radius: 8px; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+        .db-update-banner.success { background: #f0f9eb; color: var(--success); border: 1px solid #e1f3d8; }
+        .db-update-banner.error { background: #fef0f0; color: var(--danger); border: 1px solid #fde2e2; }
+
+        /* DB更新进度 */
+        .db-update-progress { margin-top: 12px; padding: 12px 16px; background: #fdf6ec; border: 1px solid #faecd8; border-radius: 8px; }
+        .db-update-progress .progress-label { font-size: 13px; color: var(--warning); font-weight: 600; margin-bottom: 8px; }
+        .db-update-progress .progress-bar { height: 16px; }
+
+        /* 操作日志 */
+        .log-panel { margin-top: 8px; max-height: 300px; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; }
+        .log-panel table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .log-panel th { background: #fafafa; padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--border); position: sticky; top: 0; }
+        .log-panel td { padding: 5px 10px; border-bottom: 1px solid #f0f0f0; }
+        .log-level-info { color: var(--primary); }
+        .log-level-warning { color: var(--warning); }
+        .log-level-error { color: var(--danger); }
+
+        /* 响应式 */
+        @media (max-width: 768px) {
+            .container { padding: 12px; }
+            .charts-grid { grid-template-columns: 1fr; }
+            .stats-row { flex-direction: column; }
+            .header { padding: 16px; }
+            .db-config-body { grid-template-columns: 1fr; }
+        }
+
+        /* 加载动画 */
+        .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.3); border-radius: 50%; border-top-color: #fff; animation: spin 0.8s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* 空状态 */
+        .empty-state { text-align: center; padding: 40px; color: var(--text-muted); }
+        .empty-state .empty-icon { font-size: 48px; margin-bottom: 12px; }
+    </style>
+</head>
+<body>
+<div id="app">
+    <div class="container">
+        <!-- 头部 -->
+        <div class="header">
+            <div>
+                <h1>📋 招中标链接分析器</h1>
+                <div class="subtitle">检测招中标信息链接可用性，自动生成结构化摘要</div>
+            </div>
+            <div style="display:flex; gap:10px; align-items:center;">
+                <button class="btn" style="background:rgba(255,255,255,0.2); color:#fff; font-size:12px; padding:6px 14px;" @click="showLogPanel = !showLogPanel">📜 日志</button>
+                <button class="btn" style="background:rgba(255,255,255,0.2); color:#fff; font-size:12px; padding:6px 14px;" @click="resetAll" v-if="taskId">🔄 新任务</button>
+                <div class="badge">v0.3.0</div>
+            </div>
+        </div>
+
+        <!-- 操作日志面板 -->
+        <div class="card" v-if="showLogPanel">
+            <div class="card-title"><span class="icon"></span>操作日志 <button class="btn btn-xs" style="background:#f0f0f0;" @click="refreshLogs">刷新</button></div>
+            <div class="log-panel">
+                <table>
+                    <thead><tr><th style="width:140px">时间</th><th style="width:100px">操作</th><th>详情</th></tr></thead>
+                    <tbody>
+                        <tr v-for="log in opLogs" :key="log.id">
+                            <td style="color:var(--text-muted)">{{ log.time }}</td>
+                            <td><span :class="'log-level-' + log.level">{{ log.action }}</span></td>
+                            <td style="color:var(--text-secondary)">{{ log.detail }}</td>
+                        </tr>
+                        <tr v-if="opLogs.length === 0"><td colspan="3" style="text-align:center; color:var(--text-muted)">暂无日志</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 数据导入 -->
+        <div class="card" v-if="!taskId">
+            <div class="card-title"><span class="icon"></span>数据导入</div>
+            <!-- 数据源切换 -->
+            <div class="source-tabs">
+                <div class="source-tab" :class="{ active: sourceType === 'file' }" @click="sourceType = 'file'">📁 文件上传</div>
+                <div class="source-tab" :class="{ active: sourceType === 'database' }" @click="sourceType = 'database'">🗄️ 数据库</div>
+            </div>
+
+            <!-- 文件上传区域 -->
+            <div v-if="sourceType === 'file'">
+                <div class="upload-zone" :class="{ dragging: isDragging }"
+                     @click="$refs.fileInput.click()"
+                     @dragover.prevent="isDragging = true"
+                     @dragleave="isDragging = false"
+                     @drop.prevent="handleDrop">
+                    <div class="icon">📁</div>
+                    <div style="font-size: 15px; font-weight: 500;">点击或拖拽上传 Excel 文件</div>
+                    <div class="tip">支持 .xlsx / .xls 格式，文件需包含「原文链接」列</div>
+                </div>
+                <input ref="fileInput" type="file" accept=".xlsx,.xls" @change="handleFileChange" style="display:none">
+            </div>
+
+            <!-- 数据库配置区域 -->
+            <div v-if="sourceType === 'database'">
+                <div class="db-config">
+                    <div class="db-config-title" @click="dbExpanded = !dbExpanded">
+                        <span class="toggle" :class="{ open: dbExpanded }">▶</span>
+                        🗄️ MySQL 数据库连接
+                        <span class="db-status" :class="dbConnected ? 'on' : 'off'">
+                            {{ dbConnected ? '✓ 已连接' : '未连接' }}
+                        </span>
+                    </div>
+                    <div class="db-config-body" v-if="dbExpanded">
+                        <div class="form-group">
+                            <span class="form-label">主机地址</span>
+                            <input class="form-input" v-model="dbConfig.host" placeholder="localhost">
+                        </div>
+                        <div class="form-group">
+                            <span class="form-label">端口</span>
+                            <input class="form-input" type="number" v-model.number="dbConfig.port" placeholder="3306">
+                        </div>
+                        <div class="form-group">
+                            <span class="form-label">用户名</span>
+                            <input class="form-input" v-model="dbConfig.user" placeholder="root">
+                        </div>
+                        <div class="form-group">
+                            <span class="form-label">密码</span>
+                            <input class="form-input" type="password" v-model="dbConfig.password" placeholder="数据库密码">
+                        </div>
+                        <div class="form-group full" style="flex-direction: row; gap: 10px; align-items: flex-end;">
+                            <button class="btn btn-primary btn-sm" @click="testDbConnection" :disabled="dbTesting">
+                                <span v-if="dbTesting" class="spinner" style="border-top-color: var(--primary); border-color: rgba(64,158,255,0.3);"></span>
+                                <span v-else>🔌 测试连接</span>
+                            </button>
+                            <button class="btn btn-sm" style="background:#f0f0f0;" @click="loadDatabases" :disabled="!dbConnected">加载数据库列表</button>
+                            <button class="btn btn-sm" style="background:#f0f0f0;" @click="saveDbConfig">💾 保存配置</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 数据库选择 -->
+                <div v-if="dbConnected" style="margin-top: 12px;">
+                    <div class="db-config">
+                        <div class="db-config-title" style="cursor: default;">
+                            📊 选择库表
+                        </div>
+                        <div class="db-config-body">
+                            <div class="form-group">
+                                <span class="form-label">数据库</span>
+                                <select class="form-select" v-model="dbConfig.database" @change="onDatabaseChange">
+                                    <option value="">请选择数据库</option>
+                                    <option v-for="db in dbDatabases" :key="db" :value="db">{{ db }}</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <span class="form-label">数据表</span>
+                                <select class="form-select" v-model="dbConfig.table" @change="onTableChange" :disabled="!dbConfig.database">
+                                    <option value="">请选择表</option>
+                                    <option v-for="t in dbTables" :key="t" :value="t">{{ t }}</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <span class="form-label">URL列（原文链接所在列）</span>
+                                <select class="form-select" v-model="dbConfig.url_column" :disabled="!dbConfig.table">
+                                    <option value="">请选择URL列</option>
+                                    <option v-for="c in dbColumns" :key="c.Field" :value="c.Field">{{ c.Field }} ({{ c.Type }})</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <span class="form-label">主键列（用于回写更新）</span>
+                                <select class="form-select" v-model="dbConfig.pk_column" :disabled="!dbConfig.table">
+                                    <option value="">请选择主键列</option>
+                                    <option v-for="c in dbColumns" :key="c.Field" :value="c.Field">{{ c.Field }} ({{ c.Type }}){{ c.Key === 'PRI' ? ' 🔑' : '' }}</option>
+                                </select>
+                            </div>
+                            <div class="form-group full">
+                                <span class="form-hint">💡 系统将从URL列读取链接进行分析，分析完成后自动将「链接状态 url_state」和「AI摘要 ai_abstract」更新回此表。</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 数据预览 -->
+                <div v-if="dbPreviewRows.length > 0" style="margin-top: 12px;">
+                    <div style="font-size: 13px; font-weight: 600; margin-bottom: 8px; color: var(--text-secondary);">📋 数据预览（前10条）</div>
+                    <div class="db-preview">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th v-for="key in dbPreviewKeys" :key="key">{{ key }}</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="(row, idx) in dbPreviewRows" :key="idx">
+                                    <td v-for="key in dbPreviewKeys" :key="key" :title="row[key]">{{ row[key] || '-' }}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 文件/数据信息 + 开始按钮 -->
+        <div class="card" v-if="readyToAnalyze && !taskId">
+            <div class="card-title"><span class="icon"></span>{{ sourceType === 'file' ? '文件预览' : '数据库预览' }}</div>
+            <div class="file-info">
+                <div style="font-size: 28px;">📊</div>
+                <div>
+                    <div class="name">{{ dataSourceName }}</div>
+                    <div class="count">共 {{ dataSourceCount }} 条招中标记录待检测</div>
+                </div>
+                <div style="margin-left: auto;">
+                    <button class="btn btn-primary" @click="startAnalysis" :disabled="analyzing">
+                        <span v-if="analyzing" class="spinner"></span>
+                        <span v-else>🚀 开始分析</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- LLM 配置 -->
+            <div class="llm-config">
+                <div class="llm-config-title" @click="llmExpanded = !llmExpanded">
+                    <span class="toggle" :class="{ open: llmExpanded }">▶</span>
+                    🤖 大模型增强摘要
+                    <span class="llm-status" :class="llmConfig.api_key ? 'on' : 'off'">
+                        {{ llmConfig.api_key ? '✓ 已配置' : '未启用' }}
+                    </span>
+                </div>
+                <div class="llm-config-body" v-if="llmExpanded">
+                    <div class="form-group full">
+                        <span class="form-label">API Key</span>
+                        <input class="form-input" type="password" v-model="llmConfig.api_key" placeholder="输入大模型 API Key 以启用智能摘要">
+                    </div>
+                    <div class="form-group">
+                        <span class="form-label">Base URL</span>
+                        <input class="form-input" v-model="llmConfig.base_url" placeholder="默认: 智谱GLM API">
+                    </div>
+                    <div class="form-group">
+                        <span class="form-label">模型名称</span>
+                        <input class="form-input" v-model="llmConfig.model" placeholder="默认: glm-5.1">
+                    </div>
+                    <div class="form-group full">
+                        <span class="form-hint">💡 填写 API Key 后，系统将使用大模型对有效链接的页面内容进行智能摘要提取，生成更准确的项目摘要、中标单位、金额等信息。未填写则使用规则提取。</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 分析进度 -->
+        <div class="card" v-if="taskId">
+            <div class="card-title"><span class="icon"></span>分析进度</div>
+            <div class="progress-bar">
+                <div class="progress-fill" :class="{ running: status.status === 'running', completed: status.status === 'completed', updating: status.status === 'updating_db' }" :style="{ width: progressPercent + '%' }"></div>
+                <div class="progress-text">{{ progressLabel }}</div>
+            </div>
+            <div class="stats-row">
+                <div class="stat-item stat-valid">
+                    <div class="num">{{ status.valid_count }}</div>
+                    <div class="label">✓ 有效链接</div>
+                </div>
+                <div class="stat-item stat-login">
+                    <div class="num">{{ status.login_count }}</div>
+                    <div class="label">⚠ 需登录查看</div>
+                </div>
+                <div class="stat-item stat-invalid">
+                    <div class="num">{{ status.invalid_count }}</div>
+                    <div class="label">✗ 链接无效</div>
+                </div>
+                <div class="stat-item" style="background: #f0f2f5; color: var(--text);">
+                    <div class="num">{{ status.completed }}/{{ status.total }}</div>
+                    <div class="label">已完成</div>
+                </div>
+                <div class="stat-item stat-tokens" v-if="status.total_input_tokens > 0 || status.total_output_tokens > 0">
+                    <div class="num">↑{{ status.total_input_tokens }} ↓{{ status.total_output_tokens }}</div>
+                    <div class="label">Tokens (入/出)</div>
+                </div>
+            </div>
+
+            <!-- DB更新进度 -->
+            <div class="db-update-progress" v-if="status.status === 'updating_db' && status.db_update_progress">
+                <div class="progress-label">⏳ 正在更新数据库 ({{ status.db_update_progress.current }}/{{ status.db_update_progress.total }})...</div>
+                <div class="progress-bar" style="height: 14px;">
+                    <div class="progress-fill updating" :style="{ width: dbUpdatePercent + '%' }"></div>
+                </div>
+            </div>
+
+            <!-- 完成提示 -->
+            <div class="done-banner" v-if="status.status === 'completed'">
+                <div class="done-icon">✅</div>
+                <div class="done-text">
+                    <div class="done-title">分析完成！共检测 {{ status.total }} 条链接</div>
+                    <div class="done-sub">有效 {{ status.valid_count }} 条 | 需登录 {{ status.login_count }} 条 | 无效 {{ status.invalid_count }} 条
+                        <span v-if="status.total_input_tokens > 0"> | Tokens: 入{{ status.total_input_tokens }} 出{{ status.total_output_tokens }}</span>
+                    </div>
+                </div>
+                <button class="btn btn-success btn-sm" @click="exportResult">📥 导出Excel</button>
+            </div>
+            <!-- DB回写结果 -->
+            <div class="db-update-banner" v-if="status.status === 'completed' && status.db_update_result" :class="status.db_update_result.success ? 'success' : 'error'">
+                <span>{{ status.db_update_result.success ? '✅' : '❌' }}</span>
+                <span>数据库回写{{ status.db_update_result.success ? '成功' : '失败' }}{{ status.db_update_result.success ? '，已更新 ' + status.db_update_result.updated + ' 条记录' : '：' + status.db_update_result.message }}</span>
+            </div>
+        </div>
+
+        <!-- 结果表格 -->
+        <div class="card" v-if="taskId && records.length > 0">
+            <div class="card-title"><span class="icon"></span>分析明细 ({{ filteredRecords.length }} 条)</div>
+            <div class="toolbar">
+                <div class="filter-tabs">
+                    <span class="filter-tab" :class="{ active: filter === '全部' }" @click="setFilter('全部')">全部<span class="tab-count">({{ records.length }})</span></span>
+                    <span class="filter-tab" :class="{ active: filter === '有效' }" @click="setFilter('有效')">有效<span class="tab-count">({{ countByStatus('有效') }})</span></span>
+                    <span class="filter-tab" :class="{ active: filter === '需登录查看' }" @click="setFilter('需登录查看')">需登录<span class="tab-count">({{ countByStatus('需登录查看') }})</span></span>
+                    <span class="filter-tab" :class="{ active: filter === '链接无效' }" @click="setFilter('链接无效')">无效<span class="tab-count">({{ countByStatus('链接无效') }})</span></span>
+                </div>
+                <input class="search-input" v-model="searchText" placeholder="搜索标题、单位..." @input="page = 1">
+                <div style="margin-left: auto;" class="btn-group">
+                    <button class="btn btn-success btn-sm" @click="exportResult" :disabled="status.status !== 'completed'" :title="status.status !== 'completed' ? '分析完成后可导出' : ''">📥 导出Excel</button>
+                </div>
+            </div>
+            <div class="table-wrap" style="max-height: 560px; overflow-y: auto;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th style="width:45px" @click="toggleSort('index')"># <span class="sort-icon" :class="{ active: sortField === 'index' }">{{ sortDir === 'asc' ? '▲' : '▼' }}</span></th>
+                            <th @click="toggleSort('标讯标题')">标讯标题 <span class="sort-icon" :class="{ active: sortField === '标讯标题' }">{{ sortDir === 'asc' ? '▲' : '▼' }}</span></th>
+                            <th style="width:110px">来源网站</th>
+                            <th style="width:90px">采购单位</th>
+                            <th style="width:90px">中标单位</th>
+                            <th style="width:90px" @click="toggleSort('中标金额')">中标金额 <span class="sort-icon" :class="{ active: sortField === '中标金额' }">{{ sortDir === 'asc' ? '▲' : '▼' }}</span></th>
+                            <th style="width:85px" @click="toggleSort('链接状态')">链接状态 <span class="sort-icon" :class="{ active: sortField === '链接状态' }">{{ sortDir === 'asc' ? '▲' : '▼' }}</span></th>
+                            <th style="width:60px">摘要</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="r in pagedRecords" :key="r.index">
+                            <td>{{ r.index }}</td>
+                            <td>
+                                <div class="ellipsis" :title="r.标讯标题">{{ r.标讯标题 || '-' }}</div>
+                                <a class="link" :href="r.原文链接" target="_blank" v-if="r.原文链接">原文链接 ↗</a>
+                                <div class="error-text" v-if="r.错误信息">{{ r.错误信息 }}</div>
+                            </td>
+                            <td>{{ r.来源网站名称 || '-' }}</td>
+                            <td><div class="ellipsis" :title="r.采购单位">{{ r.采购单位 || '-' }}</div></td>
+                            <td><div class="ellipsis" :title="r.中标单位">{{ r.中标单位 || '-' }}</div></td>
+                            <td><span class="amount" v-if="r.中标金额 > 0">{{ formatAmount(r.中标金额) }}</span><span v-else style="color:var(--text-muted)">-</span></td>
+                            <td><span class="status-badge" :class="'status-' + r.链接状态">{{ r.链接状态 }}</span></td>
+                            <td>
+                                <span class="summary-btn" v-if="r.AI摘要 || r.页面摘要" @click="showSummary(r)" :title="r.AI摘要 ? 'AI摘要' : '结构化摘要'">📝<span v-if="r.AI摘要" style="color:var(--primary); font-size:10px;">AI</span></span>
+                                <span v-else style="color: var(--text-muted);">-</span>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="pagination" v-if="totalPages > 1">
+                <button class="page-btn" :disabled="page <= 1" @click="page--">上一页</button>
+                <button class="page-btn" v-for="p in visiblePages" :key="p" :class="{ active: p === page }" @click="page = p">{{ p }}</button>
+                <button class="page-btn" :disabled="page >= totalPages" @click="page++">下一页</button>
+                <span class="page-info">共 {{ filteredRecords.length }} 条</span>
+                <select class="page-size-select" v-model="pageSize">
+                    <option :value="30">30条/页</option>
+                    <option :value="50">50条/页</option>
+                    <option :value="100">100条/页</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- 空状态 -->
+        <div class="card" v-if="taskId && records.length === 0 && status.status === 'running'">
+            <div class="empty-state">
+                <div class="empty-icon">⏳</div>
+                <div>正在分析中，结果将实时显示...</div>
+            </div>
+        </div>
+
+        <!-- 统计面板 -->
+        <div class="card" v-if="taskId && records.length > 0 && status.status === 'completed'">
+            <div class="card-title"><span class="icon"></span>统计分析</div>
+            <div class="charts-grid">
+                <div class="chart-box" ref="statusChart"></div>
+                <div class="chart-box" ref="sourceChart"></div>
+                <div class="chart-box" ref="amountChart"></div>
+                <div class="chart-box" ref="regionChart"></div>
+            </div>
+        </div>
+
+        <!-- 摘要弹窗 -->
+        <div class="modal-overlay" v-if="summaryModal" @click.self="summaryModal = null">
+            <div class="modal">
+                <div class="modal-header">
+                    <h3>📋 分析摘要</h3>
+                    <button class="modal-close" @click="summaryModal = null">✕</button>
+                </div>
+                <!-- AI摘要优先展示 -->
+                <div v-if="summaryModal.AI摘要" style="margin-bottom: 16px;">
+                    <div style="font-size: 13px; color: var(--primary); font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">🤖 AI 智能摘要</div>
+                    <div class="summary-content" style="background: #f0f7ff; border-left: 3px solid var(--primary);">{{ summaryModal.AI摘要 }}</div>
+                </div>
+                <!-- 结构化信息 -->
+                <div v-if="summaryModal.页面摘要" style="margin-bottom: 16px;">
+                    <div style="font-size: 13px; color: var(--text-secondary); font-weight: 600; margin-bottom: 8px;">📄 结构化信息</div>
+                    <div class="summary-content">{{ summaryModal.页面摘要 }}</div>
+                </div>
+                <div v-if="!summaryModal.AI摘要 && !summaryModal.页面摘要" style="color:var(--text-muted); padding:12px; text-align:center;">暂无摘要信息</div>
+                <div class="summary-meta">
+                    <div class="meta-item"><span class="label">标讯标题：</span><span class="value">{{ summaryModal.标讯标题 || '-' }}</span></div>
+                    <div class="meta-item"><span class="label">来源网站：</span><span class="value">{{ summaryModal.来源网站名称 || '-' }}</span></div>
+                    <div class="meta-item"><span class="label">采购单位：</span><span class="value">{{ summaryModal.采购单位 || '-' }}</span></div>
+                    <div class="meta-item"><span class="label">中标单位：</span><span class="value">{{ summaryModal.中标单位 || '-' }}</span></div>
+                    <div class="meta-item"><span class="label">中标金额：</span><span class="value">{{ summaryModal.中标金额 > 0 ? formatAmount(summaryModal.中标金额) : '-' }}</span></div>
+                    <div class="meta-item"><span class="label">所在地区：</span><span class="value">{{ (summaryModal.省份 || '') + (summaryModal.城市 || '') || '-' }}</span></div>
+                    <div class="meta-item"><span class="label">链接状态：</span><span class="value"><span class="status-badge" :class="'status-' + summaryModal.链接状态">{{ summaryModal.链接状态 }}</span></span></div>
+                    <div class="meta-item"><span class="label">检测时间：</span><span class="value">{{ summaryModal.检测时间 || '-' }}</span></div>
+                    <div class="meta-item" v-if="summaryModal.错误信息" style="grid-column:1/3"><span class="label">错误信息：</span><span class="value" style="color:var(--danger)">{{ summaryModal.错误信息 }}</span></div>
+                </div>
+                <div style="margin-top: 16px; display: flex; justify-content: space-between; align-items: center;">
+                    <a class="link" :href="summaryModal.原文链接" target="_blank" v-if="summaryModal.原文链接">🔗 查看原文链接</a>
+                    <span v-else></span>
+                    <button class="btn btn-sm" style="background:#f0f0f0;" @click="summaryModal = null">关闭</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+const { createApp, ref, computed, watch, nextTick, onMounted } = Vue;
+
+createApp({
+    setup() {
+        // 基础状态
+        const isDragging = ref(false);
+        const fileInfo = ref(null);
+        const taskId = ref(null);
+        const analyzing = ref(false);
+        const status = ref({ status: 'pending', total: 0, completed: 0, valid_count: 0, login_count: 0, invalid_count: 0, filename: '', result_file: '', error: '', source_type: 'file', db_update_result: null, db_update_progress: null, total_input_tokens: 0, total_output_tokens: 0 });
+        const records = ref([]);
+        const filter = ref('全部');
+        const searchText = ref('');
+        const page = ref(1);
+        const pageSize = ref(50);
+        const summaryModal = ref(null);
+        const statusChart = ref(null);
+        const sourceChart = ref(null);
+        const amountChart = ref(null);
+        const regionChart = ref(null);
+        const sortField = ref('');
+        const sortDir = ref('asc');
+
+        // 操作日志
+        const showLogPanel = ref(false);
+        const opLogs = ref([]);
+
+        // 数据源类型
+        const sourceType = ref('file');
+
+        // 数据库配置（从localStorage恢复）
+        const dbExpanded = ref(true);
+        const dbConnected = ref(false);
+        const dbTesting = ref(false);
+        const dbDatabases = ref([]);
+        const dbTables = ref([]);
+        const dbColumns = ref([]);
+        const dbPreviewRows = ref([]);
+        const dbPreviewKeys = ref([]);
+
+        const savedDbConfig = localStorage.getItem('dbConfig');
+        const dbConfig = ref(savedDbConfig ? JSON.parse(savedDbConfig) : {
+            host: 'localhost',
+            port: 3306,
+            user: 'root',
+            password: '',
+            database: '',
+            table: '',
+            url_column: '',
+            pk_column: '',
+        });
+
+        // LLM 配置（从localStorage恢复）
+        const llmExpanded = ref(true);
+        const savedLlmConfig = localStorage.getItem('llmConfig');
+        const llmConfig = ref(savedLlmConfig ? JSON.parse(savedLlmConfig) : {
+            api_key: '01c9ebc299114268a48b5b9ec6e7d454.iWWSjuURKCjjQZq2',
+            base_url: 'https://open.bigmodel.cn/api/anthropic',
+            model: 'glm-5.1',
+        });
+
+        // 自动保存配置
+        watch(dbConfig, (val) => { localStorage.setItem('dbConfig', JSON.stringify(val)); }, { deep: true });
+        watch(llmConfig, (val) => { localStorage.setItem('llmConfig', JSON.stringify(val)); }, { deep: true });
+
+        let pollTimer = null;
+        let chartInstances = {};
+
+        // 计算属性
+        const readyToAnalyze = computed(() => {
+            if (sourceType.value === 'file') {
+                return !!fileInfo.value;
+            } else {
+                return dbConnected.value && dbConfig.value.database && dbConfig.value.table && dbConfig.value.url_column && dbConfig.value.pk_column;
+            }
+        });
+
+        const dataSourceName = computed(() => {
+            if (sourceType.value === 'file') {
+                return fileInfo.value?.filename || '';
+            } else {
+                return `${dbConfig.value.database}.${dbConfig.value.table}`;
+            }
+        });
+
+        const dataSourceCount = computed(() => {
+            if (sourceType.value === 'file') {
+                return fileInfo.value?.total || 0;
+            } else {
+                return dbPreviewRows.value.length > 0 ? '（预览10条）' : 0;
+            }
+        });
+
+        const progressPercent = computed(() => {
+            if (status.value.status === 'updating_db' && status.value.db_update_progress) {
+                return 100; // 分析已完成，显示100%
+            }
+            if (!status.value.total) return 0;
+            return Math.round((status.value.completed / status.value.total) * 100);
+        });
+
+        const progressLabel = computed(() => {
+            if (status.value.status === 'updating_db') return '分析完成，正在更新数据库...';
+            if (status.value.status === 'completed') return progressPercent.value + '%';
+            return progressPercent.value + '%';
+        });
+
+        const dbUpdatePercent = computed(() => {
+            const p = status.value.db_update_progress;
+            if (!p || !p.total) return 0;
+            return Math.round((p.current / p.total) * 100);
+        });
+
+        const countByStatus = (s) => records.value.filter(r => r.链接状态 === s).length;
+
+        const filteredRecords = computed(() => {
+            let list = records.value;
+            if (filter.value !== '全部') {
+                list = list.filter(r => r.链接状态 === filter.value);
+            }
+            if (searchText.value) {
+                const s = searchText.value.toLowerCase();
+                list = list.filter(r =>
+                    (r.标讯标题 || '').toLowerCase().includes(s) ||
+                    (r.采购单位 || '').toLowerCase().includes(s) ||
+                    (r.中标单位 || '').toLowerCase().includes(s) ||
+                    (r.来源网站名称 || '').toLowerCase().includes(s)
+                );
+            }
+            if (sortField.value) {
+                const dir = sortDir.value === 'asc' ? 1 : -1;
+                list = [...list].sort((a, b) => {
+                    let va = a[sortField.value], vb = b[sortField.value];
+                    if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * dir;
+                    return String(va || '').localeCompare(String(vb || ''), 'zh') * dir;
+                });
+            }
+            return list;
+        });
+
+        const totalPages = computed(() => Math.ceil(filteredRecords.value.length / pageSize.value) || 1);
+
+        const pagedRecords = computed(() => {
+            const start = (page.value - 1) * pageSize.value;
+            return filteredRecords.value.slice(start, start + pageSize.value);
+        });
+
+        const visiblePages = computed(() => {
+            const total = totalPages.value;
+            const cur = page.value;
+            const pages = [];
+            for (let i = Math.max(1, cur - 3); i <= Math.min(total, cur + 3); i++) {
+                pages.push(i);
+            }
+            return pages;
+        });
+
+        // 方法
+        function setFilter(f) {
+            filter.value = f;
+            page.value = 1;
+        }
+
+        function toggleSort(field) {
+            if (sortField.value === field) {
+                sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc';
+            } else {
+                sortField.value = field;
+                sortDir.value = 'asc';
+            }
+        }
+
+        function formatAmount(v) {
+            if (!v || v === 0) return '-';
+            if (v >= 10000) return (v / 10000).toFixed(2) + '万';
+            return v.toFixed(2) + '元';
+        }
+
+        // 保存数据库配置
+        function saveDbConfig() {
+            localStorage.setItem('dbConfig', JSON.stringify(dbConfig.value));
+            alert('✅ 数据库配置已保存！下次打开页面将自动恢复。');
+        }
+
+        // 加载操作日志
+        async function refreshLogs() {
+            try {
+                const resp = await fetch('/api/logs?limit=100');
+                const data = await resp.json();
+                if (resp.ok) {
+                    opLogs.value = data.logs.reverse();
+                }
+            } catch (e) {
+                console.error('Load logs error:', e);
+            }
+        }
+
+        async function handleFileChange(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            await uploadFile(file);
+        }
+
+        async function handleDrop(e) {
+            isDragging.value = false;
+            const file = e.dataTransfer.files[0];
+            if (!file) return;
+            await uploadFile(file);
+        }
+
+        async function uploadFile(file) {
+            const formData = new FormData();
+            formData.append('file', file);
+            try {
+                const resp = await fetch('/api/upload', { method: 'POST', body: formData });
+                const data = await resp.json();
+                if (resp.ok) {
+                    fileInfo.value = data;
+                } else {
+                    alert(data.detail || '上传失败');
+                }
+            } catch (e) {
+                alert('上传失败: ' + e.message);
+            }
+        }
+
+        // 数据库操作方法
+        async function testDbConnection() {
+            dbTesting.value = true;
+            try {
+                const resp = await fetch('/api/db/test', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        host: dbConfig.value.host,
+                        port: Number(dbConfig.value.port) || 3306,
+                        user: dbConfig.value.user,
+                        password: dbConfig.value.password,
+                    }),
+                });
+                const data = await resp.json();
+                if (resp.ok) {
+                    dbConnected.value = true;
+                    let msg = '✅ 数据库连接成功！';
+                    if (data.mysql_version) {
+                        msg += '\nMySQL版本: ' + data.mysql_version;
+                    }
+                    alert(msg);
+                } else {
+                    dbConnected.value = false;
+                    let detail = data.detail || '未知错误';
+                    if (detail.length > 300) {
+                        detail = detail.substring(0, 300) + '...';
+                    }
+                    alert('❌ 连接失败\n\n' + detail);
+                }
+            } catch (e) {
+                dbConnected.value = false;
+                alert('❌ 请求失败: ' + e.message + '\n\n请确认后端服务是否正常运行。');
+            }
+            dbTesting.value = false;
+        }
+
+        async function loadDatabases() {
+            try {
+                const resp = await fetch('/api/db/databases', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        host: dbConfig.value.host,
+                        port: Number(dbConfig.value.port) || 3306,
+                        user: dbConfig.value.user,
+                        password: dbConfig.value.password,
+                    }),
+                });
+                const data = await resp.json();
+                if (resp.ok) {
+                    dbDatabases.value = data.databases;
+                    if (data.databases.length === 0) {
+                        alert('未找到可用数据库');
+                    }
+                } else {
+                    alert('获取数据库列表失败: ' + (data.detail || ''));
+                }
+            } catch (e) {
+                alert('请求失败: ' + e.message);
+            }
+        }
+
+        async function onDatabaseChange() {
+            dbTables.value = [];
+            dbColumns.value = [];
+            dbPreviewRows.value = [];
+            dbPreviewKeys.value = [];
+            dbConfig.value.table = '';
+            dbConfig.value.url_column = '';
+            dbConfig.value.pk_column = '';
+
+            if (!dbConfig.value.database) return;
+
+            try {
+                const resp = await fetch('/api/db/tables', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        host: dbConfig.value.host,
+                        port: Number(dbConfig.value.port) || 3306,
+                        user: dbConfig.value.user,
+                        password: dbConfig.value.password,
+                        database: dbConfig.value.database,
+                    }),
+                });
+                const data = await resp.json();
+                if (resp.ok) {
+                    dbTables.value = data.tables;
+                }
+            } catch (e) {
+                console.error('Load tables error:', e);
+            }
+        }
+
+        async function onTableChange() {
+            dbColumns.value = [];
+            dbPreviewRows.value = [];
+            dbPreviewKeys.value = [];
+            dbConfig.value.url_column = '';
+            dbConfig.value.pk_column = '';
+
+            if (!dbConfig.value.table) return;
+
+            // 加载列信息
+            try {
+                const resp = await fetch('/api/db/columns', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        host: dbConfig.value.host,
+                        port: Number(dbConfig.value.port) || 3306,
+                        user: dbConfig.value.user,
+                        password: dbConfig.value.password,
+                        database: dbConfig.value.database,
+                        table: dbConfig.value.table,
+                    }),
+                });
+                const data = await resp.json();
+                if (resp.ok) {
+                    dbColumns.value = data.columns;
+                    // 自动选择主键列
+                    const pkCol = data.columns.find(c => c.Key === 'PRI');
+                    if (pkCol) {
+                        dbConfig.value.pk_column = pkCol.Field;
+                    }
+                    // 自动选择可能包含URL的列
+                    const urlCol = data.columns.find(c =>
+                        c.Field.toLowerCase().includes('url') ||
+                        c.Field.toLowerCase().includes('link') ||
+                        c.Field === '原文链接' ||
+                        c.Field === 'link_url'
+                    );
+                    if (urlCol) {
+                        dbConfig.value.url_column = urlCol.Field;
+                    }
+                }
+            } catch (e) {
+                console.error('Load columns error:', e);
+            }
+
+            // 加载预览数据
+            try {
+                const resp = await fetch('/api/db/preview', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        host: dbConfig.value.host,
+                        port: Number(dbConfig.value.port) || 3306,
+                        user: dbConfig.value.user,
+                        password: dbConfig.value.password,
+                        database: dbConfig.value.database,
+                        table: dbConfig.value.table,
+                    }),
+                });
+                const data = await resp.json();
+                if (resp.ok && data.rows.length > 0) {
+                    dbPreviewRows.value = data.rows;
+                    dbPreviewKeys.value = Object.keys(data.rows[0]);
+                }
+            } catch (e) {
+                console.error('Load preview error:', e);
+            }
+        }
+
+        async function startAnalysis() {
+            analyzing.value = true;
+            try {
+                if (sourceType.value === 'file') {
+                    if (!fileInfo.value) return;
+                    const body = {
+                        concurrency: 10,
+                        llm_api_key: llmConfig.value.api_key,
+                        llm_base_url: llmConfig.value.base_url,
+                        llm_model: llmConfig.value.model,
+                        llm_concurrency: 5,
+                    };
+                    const resp = await fetch(`/api/analyze/${fileInfo.value.task_id}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(body),
+                    });
+                    const data = await resp.json();
+                    if (resp.ok) {
+                        taskId.value = fileInfo.value.task_id;
+                        startPolling();
+                    } else {
+                        alert(data.detail || '启动失败');
+                    }
+                } else {
+                    const body = {
+                        host: dbConfig.value.host,
+                        port: Number(dbConfig.value.port) || 3306,
+                        user: dbConfig.value.user,
+                        password: dbConfig.value.password,
+                        database: dbConfig.value.database,
+                        table: dbConfig.value.table,
+                        url_column: dbConfig.value.url_column,
+                        pk_column: dbConfig.value.pk_column,
+                    };
+                    const uploadResp = await fetch('/api/db/upload', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(body),
+                    });
+                    const uploadData = await uploadResp.json();
+                    if (!uploadResp.ok) {
+                        alert(uploadData.detail || '创建数据库任务失败');
+                        return;
+                    }
+                    fileInfo.value = uploadData;
+                    const analyzeBody = {
+                        concurrency: 10,
+                        llm_api_key: llmConfig.value.api_key,
+                        llm_base_url: llmConfig.value.base_url,
+                        llm_model: llmConfig.value.model,
+                        llm_concurrency: 5,
+                    };
+                    const resp = await fetch(`/api/analyze-db/${uploadData.task_id}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(analyzeBody),
+                    });
+                    const data = await resp.json();
+                    if (resp.ok) {
+                        taskId.value = uploadData.task_id;
+                        startPolling();
+                    } else {
+                        alert(data.detail || '启动失败');
+                    }
+                }
+            } catch (e) {
+                alert('启动失败: ' + e.message);
+            }
+            analyzing.value = false;
+        }
+
+        function startPolling() {
+            if (pollTimer) clearInterval(pollTimer);
+            pollTimer = setInterval(async () => {
+                try {
+                    const resp = await fetch(`/api/status/${taskId.value}`);
+                    const data = await resp.json();
+                    status.value = data;
+
+                    await fetchRecords();
+
+                    if (data.status === 'completed' || data.status === 'error') {
+                        clearInterval(pollTimer);
+                        pollTimer = null;
+                        if (data.status === 'completed') {
+                            await nextTick();
+                            renderCharts();
+                        }
+                        if (data.status === 'error') {
+                            alert('分析出错: ' + data.error);
+                        }
+                        // 刷新日志
+                        refreshLogs();
+                    }
+                } catch (e) {
+                    console.error('Poll error:', e);
+                }
+            }, 1500);
+        }
+
+        async function fetchRecords() {
+            try {
+                const resp = await fetch(`/api/records/${taskId.value}?page=1&page_size=2000`);
+                const data = await resp.json();
+                if (resp.ok) {
+                    records.value = data.records;
+                }
+            } catch (e) {
+                console.error('Fetch records error:', e);
+            }
+        }
+
+        function showSummary(record) {
+            summaryModal.value = record;
+        }
+
+        async function exportResult() {
+            if (!taskId.value) return;
+            window.open(`/api/export/${taskId.value}`, '_blank');
+        }
+
+        function resetAll() {
+            if (pollTimer) clearInterval(pollTimer);
+            pollTimer = null;
+            taskId.value = null;
+            fileInfo.value = null;
+            records.value = [];
+            status.value = { status: 'pending', total: 0, completed: 0, valid_count: 0, login_count: 0, invalid_count: 0, filename: '', result_file: '', error: '', source_type: 'file', db_update_result: null, db_update_progress: null, total_input_tokens: 0, total_output_tokens: 0 };
+            filter.value = '全部';
+            searchText.value = '';
+            page.value = 1;
+            sortField.value = '';
+            sortDir.value = 'asc';
+            summaryModal.value = null;
+            llmExpanded.value = false;
+            sourceType.value = 'file';
+            dbConnected.value = false;
+            dbDatabases.value = [];
+            dbTables.value = [];
+            dbColumns.value = [];
+            dbPreviewRows.value = [];
+            dbPreviewKeys.value = [];
+            dbConfig.value.database = '';
+            dbConfig.value.table = '';
+            dbConfig.value.url_column = '';
+            dbConfig.value.pk_column = '';
+            Object.values(chartInstances).forEach(c => c && c.dispose());
+            chartInstances = {};
+        }
+
+        async function renderCharts() {
+            try {
+                const resp = await fetch(`/api/stats/${taskId.value}`);
+                const stats = await resp.json();
+                if (!resp.ok) return;
+
+                await nextTick();
+
+                if (statusChart.value) {
+                    if (chartInstances.status) chartInstances.status.dispose();
+                    chartInstances.status = echarts.init(statusChart.value);
+                    chartInstances.status.setOption({
+                        title: { text: '链接状态分布', left: 'center', textStyle: { fontSize: 14 } },
+                        tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+                        series: [{
+                            type: 'pie', radius: ['40%', '70%'], center: ['50%', '55%'],
+                            label: { formatter: '{b}\n{c}条' },
+                            data: [
+                                { value: stats.status_distribution['有效'], name: '有效', itemStyle: { color: '#67C23A' } },
+                                { value: stats.status_distribution['需登录查看'], name: '需登录查看', itemStyle: { color: '#E6A23C' } },
+                                { value: stats.status_distribution['链接无效'], name: '链接无效', itemStyle: { color: '#F56C6C' } },
+                            ].filter(d => d.value > 0)
+                        }]
+                    });
+                }
+
+                if (sourceChart.value) {
+                    if (chartInstances.source) chartInstances.source.dispose();
+                    chartInstances.source = echarts.init(sourceChart.value);
+                    const sourceEntries = Object.entries(stats.source_distribution).slice(0, 10);
+                    chartInstances.source.setOption({
+                        title: { text: '来源网站 TOP10', left: 'center', textStyle: { fontSize: 14 } },
+                        tooltip: {},
+                        xAxis: { type: 'category', data: sourceEntries.map(e => e[0]), axisLabel: { rotate: 30, fontSize: 11 } },
+                        yAxis: { type: 'value' },
+                        grid: { bottom: 80, top: 40 },
+                        series: [{ type: 'bar', data: sourceEntries.map(e => e[1]), itemStyle: { color: '#409EFF', borderRadius: [4, 4, 0, 0] } }]
+                    });
+                }
+
+                if (amountChart.value) {
+                    if (chartInstances.amount) chartInstances.amount.dispose();
+                    chartInstances.amount = echarts.init(amountChart.value);
+                    const amtEntries = Object.entries(stats.amount_distribution);
+                    chartInstances.amount.setOption({
+                        title: { text: '中标金额分布', left: 'center', textStyle: { fontSize: 14 } },
+                        tooltip: {},
+                        xAxis: { type: 'category', data: amtEntries.map(e => e[0]) },
+                        yAxis: { type: 'value' },
+                        grid: { bottom: 40, top: 40 },
+                        series: [{ type: 'bar', data: amtEntries.map(e => e[1]), itemStyle: { color: '#67C23A', borderRadius: [4, 4, 0, 0] } }]
+                    });
+                }
+
+                if (regionChart.value) {
+                    if (chartInstances.region) chartInstances.region.dispose();
+                    chartInstances.region = echarts.init(regionChart.value);
+                    const regionEntries = Object.entries(stats.region_distribution).slice(0, 10);
+                    chartInstances.region.setOption({
+                        title: { text: '地区分布 TOP10', left: 'center', textStyle: { fontSize: 14 } },
+                        tooltip: {},
+                        xAxis: { type: 'category', data: regionEntries.map(e => e[0]) },
+                        yAxis: { type: 'value' },
+                        grid: { bottom: 40, top: 40 },
+                        series: [{ type: 'bar', data: regionEntries.map(e => e[1]), itemStyle: { color: '#E6A23C', borderRadius: [4, 4, 0, 0] } }]
+                    });
+                }
+            } catch (e) {
+                console.error('Render charts error:', e);
+            }
+        }
+
+        // 初始化：加载日志
+        onMounted(() => { refreshLogs(); });
+
+        return {
+            isDragging, fileInfo, taskId, analyzing, status, records,
+            filter, searchText, page, pageSize, summaryModal,
+            statusChart, sourceChart, amountChart, regionChart,
+            sortField, sortDir,
+            sourceType, readyToAnalyze, dataSourceName, dataSourceCount,
+            dbExpanded, dbConnected, dbTesting, dbDatabases, dbTables, dbColumns,
+            dbPreviewRows, dbPreviewKeys, dbConfig,
+            llmExpanded, llmConfig,
+            progressPercent, progressLabel, dbUpdatePercent,
+            filteredRecords, totalPages, pagedRecords, visiblePages,
+            countByStatus, setFilter, toggleSort, formatAmount,
+            handleFileChange, handleDrop, startAnalysis, showSummary, exportResult, resetAll,
+            testDbConnection, loadDatabases, onDatabaseChange, onTableChange,
+            saveDbConfig,
+            showLogPanel, opLogs, refreshLogs,
+        };
+    }
+}).mount('#app');
+</script>
+</body>
+</html>
